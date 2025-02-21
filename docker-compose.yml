@@ -60,15 +60,28 @@ services:
       - etcd
       - minio
 
-  web:
-    container_name: pulse-web
-    build: .
+  agent:
+    container_name: pulse-agent
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
     ports:
-      - "8080:8000"
+      - "8000:8000"
     depends_on:
       - standalone
     environment:
       - MILVUS_URI=http://milvus-standalone:19530
+
+  web:
+    container_name: pulse-web
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    depends_on:
+      - agent
+
 
 networks:
   default:
