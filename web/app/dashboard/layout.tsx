@@ -1,3 +1,4 @@
+"use client";
 // app/dashboard/layout.tsx
 import React from "react";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -12,12 +13,20 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { useAuth } from "@clerk/nextjs";
+import { redirect } from "next/navigation";
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+
+  const {isSignedIn} = useAuth();
+  if (!isSignedIn) {
+    redirect("/login")
+  }
+
   return (
     <SidebarProvider>
       <div className="flex w-full h-screen">
