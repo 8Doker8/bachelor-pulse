@@ -81,8 +81,37 @@ services:
       - "3000:3000"
     depends_on:
       - agent
+    
+  postgres:
+    image: postgres:14-alpine
+    container_name: pulse-postgres
+    environment:
+      POSTGRES_USER: authuser
+      POSTGRES_PASSWORD: authpassword
+      POSTGRES_DB: authdb
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  auth_service:
+    build: ./backend
+    container_name: pulse-backend
+    depends_on:
+      - postgres
+    environment:
+      - DB_HOST=postgres
+      - DB_NAME=authdb
+      - DB_USER=authuser
+      - DB_PASSWORD=authpassword
+      - SECRET_KEY=supersecretkey
+    ports:
+      - "8002:8000"
 
 
 networks:
   default:
     name: milvus
+
+volumes:
+  pgdata:

@@ -15,10 +15,6 @@ import {
   SquareTerminal,
 } from "lucide-react"
 
-import {
-  UserButton
-} from "@clerk/nextjs"
-
 import { NavMain } from "@/components/nav-main"
 import { NavProjects } from "@/components/nav-projects"
 import { NavSecondary } from "@/components/nav-secondary"
@@ -145,7 +141,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavSecondary items={data.navSecondary} className="mt-auto" />
       </SidebarContent>
       <SidebarFooter>
-        <UserButton/>
+        <NavUser user={data.user} />
       </SidebarFooter>
     </Sidebar>
   )

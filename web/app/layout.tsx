@@ -3,11 +3,6 @@
 import localFont from "next/font/local";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
-import { ClerkProvider, SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/nextjs";
-import {
-  SidebarProvider,
-  // ...other sidebar components
-} from "@/components/ui/sidebar";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -27,7 +22,6 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <ClerkProvider>
       <html lang="en" suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable}`}>
         <body className="h-screen flex bg-background text-foreground">       
             <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
@@ -35,6 +29,5 @@ export default function RootLayout({
             </ThemeProvider>      
         </body>
       </html>
-    </ClerkProvider>
   );
 }
