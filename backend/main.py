@@ -292,6 +292,65 @@ def get_events(user_id: int = Depends(verify_jwt_token)):
         conn.close()
 
 
+class MedicationLog(BaseModel):
+    medication: str
+    time: str  # expected format, e.g. "08:00 AM"
+
+
+@app.post("/medication_log")
+def log_medication(med: MedicationLog, user_id: int = Depends(verify_jwt_token)):
+    from datetime import date
+
+    conn = get_db_conn()
+    try:
+        with conn.cursor() as cur:
+            # Use today's date for the event_date
+            event_date = date.today()
+            cur.execute(
+                """
+                INSERT INTO events (user_id, title, event_date, event_time)
+                VALUES (%s, %s, %s, %s) RETURNING id;
+                """,
+                (user_id, f"Medication taken: {med.medication}", event_date, med.time),
+            )
+            result = cur.fetchone()
+            conn.commit()
+            return {"message": "Medication logged", "event_id": result[0]}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+class LogEvent(BaseModel):
+    title: str
+    event_date: str  # ISO date, e.g., "2025-03-10"
+    event_time: str  # e.g., "08:00 AM"
+
+
+@app.post("/log_event")
+def log_event(event: LogEvent, user_id: int = Depends(verify_jwt_token)):
+    conn = get_db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO events (user_id, title, event_date, event_time)
+                VALUES (%s, %s, %s, %s) RETURNING id;
+                """,
+                (user_id, event.title, event.event_date, event.event_time),
+            )
+            result = cur.fetchone()
+            conn.commit()
+            return {"message": "Event logged", "event_id": result[0]}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
 @app.get("/protected")
 def protected_route(user_id: int = Depends(verify_jwt_token)):
     return {"message": "Protected resource accessed.", "user_id": user_id}
