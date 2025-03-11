@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useRef, KeyboardEvent } from "react";
+import { Button } from "@/components/ui/button";
+import { Check } from "lucide-react";
 
 type Message = {
   sender: "user" | "assistant";
@@ -13,42 +15,49 @@ export default function AssistantChat() {
   ]);
   const [inputText, setInputText] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
-
-  // Explicitly type the ref as HTMLDivElement or null.
   const messageEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  const getUserProfile = (): object | null => {
+    try {
+      const profile = localStorage.getItem("user_profile");
+      return profile ? JSON.parse(profile) : null;
+    } catch (error) {
+      console.error("Error retrieving user profile:", error);
+      return null;
+    }
+  };
+
   const sendMessage = async () => {
     const trimmed = inputText.trim();
     if (!trimmed) return;
-    
-    // Append user's message
-    const newMessages: Message[] = [
-      ...messages,
-      { sender: "user", text: trimmed },
-    ];
-    setMessages(newMessages);
+    setMessages((prev) => [...prev, { sender: "user", text: trimmed }]);
     setInputText("");
     setLoading(true);
 
     try {
+      const userProfile = getUserProfile();
+      const payload: any = { user_input: trimmed };
+      if (userProfile && Object.keys(userProfile).length > 0) {
+        payload.profile = userProfile;
+      }
       const res = await fetch("http://localhost:8000/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_input: trimmed }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error("Network response was not ok");
       const data = await res.json();
-      setMessages(prev => [
+      setMessages((prev) => [
         ...prev,
         { sender: "assistant", text: data.response || "No response received." },
       ]);
     } catch (error) {
       console.error("Error sending message:", error);
-      setMessages(prev => [
+      setMessages((prev) => [
         ...prev,
         { sender: "assistant", text: "Sorry, something went wrong." },
       ]);
@@ -65,7 +74,6 @@ export default function AssistantChat() {
 
   return (
     <div className="flex flex-col h-full p-4 border rounded-lg bg-white shadow-md">
-      {/* Chat History */}
       <div className="flex-1 overflow-y-auto mb-4">
         {messages.map((msg, index) => (
           <div
@@ -85,7 +93,6 @@ export default function AssistantChat() {
         <div ref={messageEndRef} />
       </div>
       
-      {/* Input Area */}
       <div className="flex gap-2">
         <textarea
           className="flex-1 p-2 border rounded-md resize-none"
@@ -95,13 +102,13 @@ export default function AssistantChat() {
           onChange={(e) => setInputText(e.target.value)}
           onKeyDown={handleKeyDown}
         />
-        <button
+        <Button
           className="px-4 py-2 bg-blue-600 text-white rounded-md disabled:opacity-50"
           onClick={sendMessage}
           disabled={loading}
         >
           Send
-        </button>
+        </Button>
       </div>
     </div>
   );

@@ -8,10 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-export function LoginForm({
-  className,
-  ...props
-}: React.ComponentProps<"div">) {
+export function LoginForm({ className, ...props }: React.ComponentProps<"div">) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -31,9 +28,10 @@ export function LoginForm({
         throw new Error(data.detail || "Login failed");
       }
       const data = await res.json();
-      // Store token in localStorage
       localStorage.setItem("access_token", data.access_token);
-      // Navigate to protected dashboard page
+      if (data.profile) {
+        localStorage.setItem("user_profile", JSON.stringify(data.profile));
+      }
       router.push("/dashboard/progress");
     } catch (err: any) {
       setError(err.message);

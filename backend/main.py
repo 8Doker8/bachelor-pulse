@@ -1,4 +1,3 @@
-# auth_service/main.py
 from fastapi import FastAPI, HTTPException, status, Depends, Header
 from pydantic import BaseModel
 import psycopg2
@@ -9,19 +8,25 @@ from datetime import datetime, timedelta
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import json
+from typing import Optional
+
+import uvicorn
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = FastAPI()
 
-# Enable CORS (adjust for production)
+# Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Adjust for production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Database connection settings from environment variables
+# Database connection settings
 DB_HOST = os.getenv("DB_HOST", "postgres")
 DB_NAME = os.getenv("DB_NAME", "authdb")
 DB_USER = os.getenv("DB_USER", "authuser")
@@ -40,7 +45,7 @@ def get_db_conn():
 # JWT settings
 SECRET_KEY = os.getenv("SECRET_KEY", "supersecretkey")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 1440  # 1 day for testing
+ACCESS_TOKEN_EXPIRE_MINUTES = 1440  # 1 day
 
 
 # Pydantic models
@@ -57,6 +62,7 @@ class UserLogin(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str
+    profile: Optional[dict] = None
 
 
 class CompleteRegistration(BaseModel):
@@ -69,56 +75,45 @@ class CompleteRegistration(BaseModel):
     recommended_activities: list[str]
 
 
+# Create JWT token from a user_id (stored as string in payload)
 def create_jwt_token(user_id: int):
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    payload = {"sub": str(user_id), "exp": expire}  # Store user_id as a string
+    payload = {"sub": str(user_id), "exp": expire}
     token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
     if isinstance(token, bytes):
         token = token.decode("utf-8")
     return token
 
 
-def update_treatment_streak(user_id: int):
-    """Update the treatment streak based on the time difference between now and the last login."""
-    conn = get_db_conn()
+# IMPORTANT: Define verify_jwt_token BEFORE using it in endpoints.
+def verify_jwt_token(authorization: str = Header(None)):
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing Authorization header",
+        )
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid auth scheme"
+        )
     try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT treatment_streak, last_login FROM user_profiles WHERE user_id = %s;",
-                (user_id,),
-            )
-            row = cur.fetchone()
-            now = datetime.utcnow()
-            if row:
-                current_streak, last_login = row
-                # If there is no last_login value, initialize the streak to 1
-                if last_login is None:
-                    new_streak = 1
-                else:
-                    # Calculate the whole-day difference between now and last_login
-                    diff_days = (now - last_login).days
-                    if diff_days == 1:
-                        new_streak = (current_streak or 0) + 1
-                    elif diff_days > 1:
-                        new_streak = 1
-                    else:
-                        # Same day login; do not update the streak
-                        new_streak = current_streak
-                cur.execute(
-                    "UPDATE user_profiles SET treatment_streak = %s, last_login = %s WHERE user_id = %s",
-                    (new_streak, now, user_id),
-                )
-                conn.commit()
-            else:
-                # Optional: You can create a profile row here if it doesn't exist.
-                print(
-                    f"[DEBUG] No profile found for user {user_id} when updating streak."
-                )
-    except Exception as e:
-        conn.rollback()
-        print(f"Error updating treatment streak: {e}")
-    finally:
-        conn.close()
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        # Return the user_id as an int
+        return int(payload["sub"])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired"
+        )
+    except jwt.InvalidTokenError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        )
+
+
+# -----------------------------
+# Endpoints
+# -----------------------------
 
 
 @app.post("/register")
@@ -179,42 +174,15 @@ def login(user: UserLogin):
                     detail="Invalid username or password",
                 )
             user_id = row["id"]
-            # Update treatment streak on login
-            update_treatment_streak(user_id)
             token = create_jwt_token(user_id)
+            # Fetch user profile if exists
+            cur.execute("SELECT * FROM user_profiles WHERE user_id = %s;", (user_id,))
+            profile_row = cur.fetchone()
+            profile = dict(profile_row) if profile_row else None
             print(f"[DEBUG] Login: Issued token for user {user_id}: {token}")
-            return {"access_token": token, "token_type": "bearer"}
+            return {"access_token": token, "token_type": "bearer", "profile": profile}
     finally:
         conn.close()
-
-
-def verify_jwt_token(authorization: str = Header(None)):
-    if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing Authorization header",
-        )
-    scheme, _, token = authorization.partition(" ")
-    if scheme.lower() != "bearer":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid auth scheme"
-        )
-    try:
-        print(f"[DEBUG] Verifying token: {token}")
-        print(f"[DEBUG] Using SECRET_KEY: {SECRET_KEY}")
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        print(f"[DEBUG] Decoded payload: {payload}")
-        return int(payload["sub"])
-    except jwt.ExpiredSignatureError as e:
-        print(f"[DEBUG] Token expired: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired"
-        )
-    except jwt.InvalidTokenError as e:
-        print(f"[DEBUG] Invalid token: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
-        )
 
 
 @app.post("/complete_registration")
@@ -258,16 +226,9 @@ def get_profile(user_id: int = Depends(verify_jwt_token)):
             cur.execute("SELECT * FROM user_profiles WHERE user_id = %s;", (user_id,))
             profile = cur.fetchone()
             if not profile:
-                # Return a default profile object if not found
-                profile = {
-                    "first_name": "User",
-                    "last_name": "",
-                    "treatment_streak": 0,
-                    "last_login": None,
-                }
-            else:
-                if profile.get("treatment_streak") is None:
-                    profile["treatment_streak"] = 0
+                raise HTTPException(status_code=404, detail="Profile not found")
+            if profile.get("treatment_streak") is None:
+                profile["treatment_streak"] = 0
             return {"profile": profile}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -294,7 +255,7 @@ def get_events(user_id: int = Depends(verify_jwt_token)):
 
 class MedicationLog(BaseModel):
     medication: str
-    time: str  # expected format, e.g. "08:00 AM"
+    time: str  # e.g., "08:00 AM"
 
 
 @app.post("/medication_log")
@@ -304,7 +265,6 @@ def log_medication(med: MedicationLog, user_id: int = Depends(verify_jwt_token))
     conn = get_db_conn()
     try:
         with conn.cursor() as cur:
-            # Use today's date for the event_date
             event_date = date.today()
             cur.execute(
                 """
@@ -325,8 +285,8 @@ def log_medication(med: MedicationLog, user_id: int = Depends(verify_jwt_token))
 
 class LogEvent(BaseModel):
     title: str
-    event_date: str  # ISO date, e.g., "2025-03-10"
-    event_time: str  # e.g., "08:00 AM"
+    event_date: str  # ISO date e.g. "2025-03-10"
+    event_time: str  # e.g. "08:00 AM"
 
 
 @app.post("/log_event")
@@ -362,6 +322,4 @@ def health():
 
 
 if __name__ == "__main__":
-    import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=8000)
