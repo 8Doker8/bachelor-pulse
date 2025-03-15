@@ -3,16 +3,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 from dotenv import load_dotenv
+from typing import Optional, Dict
+import PyPDF2
 import os
 import json
-from typing import Optional, Dict
 
-# Use ephemeral memory (in‑process) instead of persistent Milvus memory.
+# Use ephemeral memory (in‑process)
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationChain
 from langchain.prompts import PromptTemplate
 from langchain_openai import OpenAI
 
+# Load environment variables
 load_dotenv()
 
 # Initialize the language model
@@ -23,6 +25,28 @@ memory = ConversationBufferMemory(return_messages=True)
 
 # Global variable to store the last inserted profile.
 current_profile: Optional[Dict] = None
+
+
+# Function to load Crestor medication information from a PDF file.
+def load_crestor_info(pdf_path: str) -> str:
+    try:
+        with open(pdf_path, "rb") as file:
+            reader = PyPDF2.PdfReader(file)
+            text = ""
+            for page in reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n"
+            return text
+    except Exception as e:
+        print(f"Error reading PDF: {e}")
+        return ""
+
+
+# Load the Crestor info from the PDF (adjust the path as needed)
+crestor_info = load_crestor_info("crestor_eng.pdf")
+# Limit the length to the first 5000 characters
+crestor_info = crestor_info[:5000]
 
 # Define the prompt template.
 prompt_template = """
@@ -48,12 +72,10 @@ conversation_with_memory = ConversationChain(
 def insert_profile_into_memory(profile: dict):
     """Clear previous conversation memory if the profile has changed, then insert the new profile data."""
     global current_profile
-    # If the profile is exactly the same as the current one, do nothing.
     if current_profile == profile:
         print("Profile unchanged. Not updating memory.")
         return
 
-    # Update the current profile and clear memory.
     current_profile = profile
     memory.clear()
 
@@ -68,6 +90,10 @@ def insert_profile_into_memory(profile: dict):
         f"My name is {name}. I am {age} years old. I have been diagnosed with {diagnosis}. "
         f"I currently take {medicine}. My recommended activities are {activities_str}."
     )
+    # If the user's medicine includes "crestor", append additional info from the PDF with citation.
+    if "crestor" in medicine.lower() and crestor_info:
+        profile_text += f"\nAdditional medication info: {crestor_info}\n[Source: CRESTOR Full Prescribing Information (crestor_eng.pdf)]"
+
     # Insert the profile data into memory as a single context entry.
     memory.save_context({"input": "Profile"}, {"output": profile_text})
     print("Updated memory with profile:", profile_text)
@@ -113,7 +139,7 @@ def check_for_emergency(input_text: str) -> bool:
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Adjust for production
+    allow_origins=["*"],  # Adjust for production as needed
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -140,20 +166,19 @@ def chat_endpoint(chat_request: ChatRequest):
     user_input = chat_request.user_input
     print(f"User input: {user_input}")
 
-    # If a new profile is provided, update memory.
+    # If a new profile is provided, update the conversation memory.
     if chat_request.profile:
         print("Profile provided. Updating memory with new profile data.")
         insert_profile_into_memory(chat_request.profile)
     else:
         print("No profile provided with this request.")
 
-    # Check for emergency keywords
+    # Check for emergency keywords in the user input.
     if check_for_emergency(user_input):
         return ChatResponse(
             response="It sounds like you may be experiencing an emergency. Please seek immediate medical assistance or call your local emergency services."
         )
 
-    # Generate a response using the conversation chain
     try:
         generated_response = conversation_with_memory.predict(input=user_input)
         print("Generated response:", generated_response)
@@ -170,5 +195,8 @@ def health():
     return {"status": "ok"}
 
 
+# -------------------------------
+# Main
+# -------------------------------
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
