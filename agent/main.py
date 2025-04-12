@@ -139,7 +139,7 @@ def check_for_emergency(input_text: str) -> bool:
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Adjust for production as needed
+    allow_origins=["*"],  # TODO: Adjust for production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

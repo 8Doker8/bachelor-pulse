@@ -9,3 +9,11 @@
 ## Exit psql
 
 `\q`
+
+## Launching
+
+You should create .env file in the agent directory with your OpenAI api key.
+
+Then:
+
+`docker-compose up --build`
